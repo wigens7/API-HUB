@@ -1,1 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b1220" />
+  <title>Zytrelix | API Infrastructure</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#overview"><span class="brand-mark">C</span><span><b>zytrelix</b><small>API INFRASTRUCTURE</small></span></a>
+      <div class="workspace"><span class="workspace-icon">⌘</span><span><b>Workspace</b><small>Acme Fintech Demo</small></span><span class="chevron">⌄</span></div>
+      <p class="nav-label">WORKSPACE</p>
+      <nav class="nav-list">
+        <button class="nav-link active" data-page="overview"><span>▦</span> Overview</button>
+        <button class="nav-link" data-page="api-keys"><span>⌘</span> API keys</button>
+        <button class="nav-link" data-page="kyc"><span>▤</span> KYC submissions <i class="nav-count">3</i></button>
+        <button class="nav-link" data-page="cards"><span>▣</span> Virtual cards</button>
+        <button class="nav-link" data-page="transactions"><span>↔</span> Transactions</button>
+      </nav>
+      <p class="nav-label">DEVELOPERS</p>
+      <nav class="nav-list">
+        <button class="nav-link" data-page="documentation"><span>▧</span> Documentation</button>
+        <button class="nav-link" data-page="webhooks"><span>⌁</span> Webhooks</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="environment"><span class="live-dot"></span><span><b>Sandbox environment</b><small>Test mode is enabled</small></span><span class="switch"></span></div>
+        <button class="profile"><span class="avatar">AD</span><span><b>Alex Demo</b><small>Owner account</small></span><span class="more">···</span></button>
+      </div>
+    </aside>
 
+    <main class="main-content">
+      <header class="topbar">
+        <button class="mobile-menu" id="mobileMenu" aria-label="Open menu">☰</button>
+        <div class="breadcrumbs"><span>Workspace</span><b>/</b><strong id="crumb">Overview</strong></div>
+        <div class="top-actions"><span class="env-pill"><i></i> Sandbox</span><button class="icon-button" title="Notifications">♧<em></em></button><span class="top-avatar">AD</span></div>
+      </header>
+
+      <section class="page active-page" id="page-overview">
+        <div class="page-heading"><div><p class="eyebrow">MONDAY, NOVEMBER 20, 2026</p><h1>Good evening, Alex <span>✦</span></h1><p class="muted">Here is what is happening across your API integrations.</p></div><button class="btn btn-primary" data-go="api-keys">＋ Create API key</button></div>
+        <div class="notice"><span class="notice-icon">ⓘ</span><div><b>You are in Sandbox mode</b><p>Test API requests safely. Live card issuing stays disabled until your provider credentials and production access are approved.</p></div><button class="text-button" data-go="documentation">View setup guide →</button></div>
+        <div class="stats-grid">
+          <article class="stat-card"><div class="stat-top"><span>Total API requests</span><span class="stat-icon blue">⌘</span></div><strong>12,846</strong><small class="positive">↑ 18.6% <span>vs last month</span></small><div class="sparkline"><i style="height:30%"></i><i style="height:45%"></i><i style="height:36%"></i><i style="height:58%"></i><i style="height:50%"></i><i style="height:75%"></i><i style="height:62%"></i><i style="height:90%"></i><i style="height:76%"></i><i style="height:100%"></i></div></article>
+          <article class="stat-card"><div class="stat-top"><span>Active API keys</span><span class="stat-icon violet">⚿</span></div><strong id="keyCount">3</strong><small class="muted-small">Across 2 environments</small><div class="mini-bars"><i style="height:45%"></i><i style="height:65%"></i><i style="height:52%"></i><i style="height:85%"></i><i style="height:72%"></i><i style="height:100%"></i></div></article>
+          <article class="stat-card"><div class="stat-top"><span>KYC submissions</span><span class="stat-icon amber">▤</span></div><strong>248</strong><small><span class="positive">231 approved</span><span class="muted-small"> · 17 pending</span></small><div class="progress"><i style="width:93%"></i></div></article>
+          <article class="stat-card"><div class="stat-top"><span>Cards issued</span><span class="stat-icon green">▣</span></div><strong>186</strong><small class="positive">↑ 12.4% <span>vs last month</span></small><div class="progress green-progress"><i style="width:72%"></i></div></article>
+        </div>
+        <div class="content-grid">
+          <article class="panel usage-panel"><div class="panel-heading"><div><h2>API usage</h2><p class="muted">Requests processed by your applications</p></div><select id="usagePeriod"><option>Last 7 days</option><option>Last 30 days</option></select></div><div class="chart-legend"><span><i class="legend-blue"></i> Successful requests</span><span><i class="legend-gray"></i> Failed requests</span></div><div class="chart"><div class="y-labels"><span>4k</span><span>3k</span><span>2k</span><span>1k</span><span>0</span></div><div class="chart-area"><div class="grid-lines"><i></i><i></i><i></i><i></i><i></i></div><svg viewBox="0 0 700 190" preserveAspectRatio="none" aria-label="API usage chart"><defs><linearGradient id="area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#3988f7" stop-opacity=".25"/><stop offset="1" stop-color="#3988f7" stop-opacity="0"/></linearGradient></defs><path d="M0 150 C45 140 55 95 100 112 S160 130 200 82 S260 100 300 74 S360 98 400 55 S465 88 500 48 S560 70 600 30 S660 48 700 15 L700 190 L0 190Z" fill="url(#area)"/><path d="M0 150 C45 140 55 95 100 112 S160 130 200 82 S260 100 300 74 S360 98 400 55 S465 88 500 48 S560 70 600 30 S660 48 700 15" fill="none" stroke="#3988f7" stroke-width="3" vector-effect="non-scaling-stroke"/></svg><div class="x-labels"><span>Nov 14</span><span>Nov 15</span><span>Nov 16</span><span>Nov 17</span><span>Nov 18</span><span>Nov 19</span><span>Nov 20</span></div></div></div></article>
+          <article class="panel status-panel"><div class="panel-heading"><div><h2>Integration status</h2><p class="muted">Provider connection health</p></div><span class="status-dot-label"><i></i> Operational</span></div><div class="provider-card"><div class="provider-logo">Z</div><div><b>ZiiroPay</b><small>Virtual card provider</small></div><span class="connected">Connected</span></div><div class="status-row"><span>API connection</span><b class="green-text">Operational</b></div><div class="status-row"><span>Environment</span><b>Sandbox</b></div><div class="status-row"><span>Last checked</span><b>Just now</b></div><button class="btn btn-secondary full-btn" data-go="documentation">Integration settings</button></article>
+        </div>
+        <article class="panel table-panel"><div class="panel-heading"><div><h2>Recent API activity</h2><p class="muted">Latest requests from your applications</p></div><button class="text-button" data-go="transactions">View activity →</button></div><div class="table-wrap"><table><thead><tr><th>REQUEST</th><th>APPLICATION</th><th>STATUS</th><th>RESPONSE TIME</th><th>TIME</th></tr></thead><tbody id="activityRows"><tr><td><code>POST /v1/kyc/submit</code></td><td>Acme Wallet</td><td><span class="tag tag-green">200 Success</span></td><td>248 ms</td><td>2 min ago</td></tr><tr><td><code>POST /v1/cards</code></td><td>Acme Wallet</td><td><span class="tag tag-green">201 Created</span></td><td>412 ms</td><td>8 min ago</td></tr><tr><td><code>GET /v1/cards/history</code></td><td>Fintech Pro</td><td><span class="tag tag-red">401 Error</span></td><td>36 ms</td><td>14 min ago</td></tr></tbody></table></div></article>
+      </section>
+
+      <section class="page" id="page-api-keys"><div class="page-heading"><div><p class="eyebrow">DEVELOPER ACCESS</p><h1>API keys</h1><p class="muted">Create and manage credentials for each connected business.</p></div><button class="btn btn-primary" id="newKeyBtn">＋ Generate new key</button></div><div class="notice warning-notice"><span class="notice-icon">!</span><div><b>Keep secret keys private</b><p>Secret keys are shown once. Never expose them in browser code, mobile apps, public repositories or client-side JavaScript.</p></div></div><article class="panel table-panel"><div class="panel-heading"><div><h2>Your API credentials</h2><p class="muted">Demo credentials are local examples, not live provider keys.</p></div><select><option>All environments</option><option>Sandbox</option><option>Production</option></select></div><div class="table-wrap"><table><thead><tr><th>NAME</th><th>KEY</th><th>ENVIRONMENT</th><th>CREATED</th><th>STATUS</th><th></th></tr></thead><tbody id="keysRows"><tr><td><b>Acme Wallet</b></td><td><code>cv_test_••••••••••••91d2</code></td><td><span class="tag tag-blue">Sandbox</span></td><td>Nov 18, 2026</td><td><span class="tag tag-green">Active</span></td><td><button class="dots">···</button></td></tr><tr><td><b>Fintech Pro</b></td><td><code>cv_test_••••••••••••20ab</code></td><td><span class="tag tag-blue">Sandbox</span></td><td>Nov 16, 2026</td><td><span class="tag tag-green">Active</span></td><td><button class="dots">···</button></td></tr></tbody></table></div></article><div class="api-callout"><div class="callout-icon">⌘</div><div><h3>Build with Zytrelix</h3><p>Use your API key in the Authorization header to authenticate requests to your integration.</p><pre>Authorization: Bearer YOUR_CLYVANTA_API_KEY</pre></div></div></section>
+
+      <section class="page" id="page-kyc"><div class="page-heading"><div><p class="eyebrow">CUSTOMER VERIFICATION</p><h1>KYC submissions</h1><p class="muted">Review verification requests submitted by connected businesses.</p></div><button class="btn btn-secondary" id="exportKyc">↓ Export CSV</button></div><div class="stats-grid compact-stats"><article class="stat-card"><span class="muted">Total submissions</span><strong>248</strong></article><article class="stat-card"><span class="muted">Approved</span><strong class="green-text">231</strong></article><article class="stat-card"><span class="muted">Pending review</span><strong class="amber-text">17</strong></article><article class="stat-card"><span class="muted">Rejected</span><strong>0</strong></article></div><article class="panel table-panel"><div class="panel-heading"><div><h2>Recent submissions</h2><p class="muted">Provider status is illustrative until live API credentials are configured.</p></div><select id="kycFilter"><option value="all">All statuses</option><option value="approved">Approved</option><option value="pending">Pending</option><option value="rejected">Rejected</option></select></div><div class="table-wrap"><table><thead><tr><th>CUSTOMER</th><th>BUSINESS</th><th>COUNTRY</th><th>SUBMITTED</th><th>STATUS</th></tr></thead><tbody id="kycRows"><tr data-status="approved"><td><b>Jordan Lee</b><small>jordan@example.com</small></td><td>Acme Wallet</td><td>United States</td><td>Nov 20, 2026</td><td><span class="tag tag-green">Approved</span></td></tr><tr data-status="pending"><td><b>Marie Jean</b><small>marie@example.com</small></td><td>Fintech Pro</td><td>Haiti</td><td>Nov 20, 2026</td><td><span class="tag tag-amber">Pending</span></td></tr><tr data-status="approved"><td><b>Samuel Brown</b><small>samuel@example.com</small></td><td>Acme Wallet</td><td>Canada</td><td>Nov 19, 2026</td><td><span class="tag tag-green">Approved</span></td></tr></tbody></table></div></article></section>
+
+      <section class="page" id="page-cards"><div class="page-heading"><div><p class="eyebrow">CARD ISSUING</p><h1>Virtual cards</h1><p class="muted">Monitor card creation and card status across your clients.</p></div><button class="btn btn-primary" id="createCardBtn">＋ Create test card</button></div><div class="notice"><span class="notice-icon">ⓘ</span><div><b>Card operations require an approved KYC</b><p>Use the provider-issued customer_id from an approved KYC record. Card issuance is disabled in this visual demo.</p></div></div><article class="panel table-panel"><div class="panel-heading"><div><h2>Issued cards</h2><p class="muted">Sample records for interface preview</p></div><select><option>All cards</option><option>Active</option><option>Frozen</option></select></div><div class="table-wrap"><table><thead><tr><th>CARDHOLDER</th><th>CARD</th><th>BUSINESS</th><th>BALANCE</th><th>STATUS</th></tr></thead><tbody><tr><td><b>Jordan Lee</b></td><td><code>•••• 5976</code></td><td>Acme Wallet</td><td>$245.00</td><td><span class="tag tag-green">Active</span></td></tr><tr><td><b>Samuel Brown</b></td><td><code>•••• 1048</code></td><td>Acme Wallet</td><td>$82.50</td><td><span class="tag tag-amber">Frozen</span></td></tr></tbody></table></div></article></section>
+
+      <section class="page" id="page-transactions"><div class="page-heading"><div><p class="eyebrow">ACTIVITY LOG</p><h1>Transactions</h1><p class="muted">API and card activity across your connected businesses.</p></div><button class="btn btn-secondary" id="exportActivity">↓ Export CSV</button></div><article class="panel table-panel"><div class="panel-heading"><div><h2>Recent activity</h2><p class="muted">Illustrative records, not actual ZiiroPay transactions.</p></div><select><option>All activity</option><option>Successful</option><option>Failed</option></select></div><div class="table-wrap"><table><thead><tr><th>REFERENCE</th><th>BUSINESS</th><th>OPERATION</th><th>AMOUNT</th><th>STATUS</th><th>DATE</th></tr></thead><tbody><tr><td><code>req_8f4a12</code></td><td>Acme Wallet</td><td>KYC submission</td><td>—</td><td><span class="tag tag-green">Success</span></td><td>Nov 20, 2026</td></tr><tr><td><code>req_7c9b31</code></td><td>Acme Wallet</td><td>Card creation</td><td>$3.00</td><td><span class="tag tag-green">Success</span></td><td>Nov 20, 2026</td></tr><tr><td><code>req_6a1e20</code></td><td>Fintech Pro</td><td>Card history</td><td>—</td><td><span class="tag tag-red">Failed</span></td><td>Nov 19, 2026</td></tr></tbody></table></div></article></section>
+
+      <section class="page" id="page-documentation"><div class="page-heading"><div><p class="eyebrow">BUILD YOUR INTEGRATION</p><h1>Documentation</h1><p class="muted">Connect your application to Zytrelix and the ZiiroPay provider.</p></div><a class="btn btn-primary" href="https://ziiropay.readme.io/" target="_blank" rel="noreferrer">Provider docs ↗</a></div><div class="docs-grid"><article class="panel docs-nav"><b>GETTING STARTED</b><a href="#quickstart">Quick start</a><a href="#authentication">Authentication</a><a href="#kyc-api">Submit KYC</a><a href="#card-api">Create a card</a><a href="#webhook-api">Webhooks</a></article><div class="docs-content"><article class="panel doc-section" id="quickstart"><span class="tag tag-blue">01 / QUICK START</span><h2>Connect your business</h2><p>Each client application should receive a Zytrelix API key. Your backend validates that key, checks the tenant permissions and then calls the provider adapter.</p><ol><li>Create a business workspace.</li><li>Issue a sandbox API key for that business.</li><li>Call your Zytrelix backend, never ZiiroPay directly from browser code.</li><li>Complete provider onboarding before enabling production traffic.</li></ol></article><article class="panel doc-section" id="authentication"><span class="tag tag-blue">02 / AUTHENTICATION</span><h2>Keep provider credentials server-side</h2><p>The legacy ZiiroPay card endpoints documented here accept a public_key query parameter. Keep it on the server. Newer ZiiroPay pages also describe Bearer secret-key authentication, so confirm which credential format your account is provisioned for.</p><pre>POST /api/ziiro/kyc
+Content-Type: application/json
+x-hub-admin-token: YOUR_INTERNAL_TOKEN</pre></article><article class="panel doc-section" id="kyc-api"><span class="tag tag-blue">03 / KYC SUBMISSION</span><h2>Submit customer KYC</h2><p>Provider documentation requires identity, address, employment and account-purpose fields. Haiti country code is HTI. The ID front image is Base64.</p><pre>POST /api/ziiro/kyc
+{
+  "first_name": "Jean",
+  "last_name": "Pierre",
+  "id_number": "PASSPORT_NUMBER",
+  "email": "customer@example.com",
+  "phone_number": "50900000000",
+  "date_of_birth": "1995-05-10",
+  "dial_code": "+509",
+  "id_front_image": "BASE64_IMAGE",
+  "line1": "Street address",
+  "state": "Ouest",
+  "postal_code": "HT6110",
+  "city": "Port-au-Prince",
+  "country": "HTI",
+  "id_type": "passport",
+  "occupation": "self_employed",
+  "employment_status": "employed",
+  "account_purpose": "online_purchases",
+  "annual_salary": "12000",
+  "expected_monthly_volume": "500",
+  "place_of_birth": "Haiti"
+}</pre><p class="doc-note">The provider's published endpoint is POST /api/bitvcard/cardkyc. Its documentation lists fields as query parameters. The server adapter currently sends them in the query string. Verify this request format with your ZiiroPay integration contact before production.</p></article><article class="panel doc-section" id="card-api"><span class="tag tag-blue">04 / CARD ISSUING</span><h2>Create a virtual card</h2><p>Only submit a card request after KYC returns approved and you have the provider customer_id.</p><pre>POST /api/ziiro/cards
+{
+  "name": "Jean Pierre",
+  "customer_id": "PROVIDER_CUSTOMER_ID",
+  "amount": "3"
+}</pre><p>Card detail, card transaction history, funding and freeze/activate routes are included in the server adapter.</p></article><article class="panel doc-section" id="webhook-api"><span class="tag tag-blue">05 / WEBHOOKS</span><h2>Receive provider events</h2><p>Use a dedicated HTTPS webhook receiver. Verify signatures against the exact ZiiroPay webhook signing instructions before processing events. Do not trust an unsigned event or mark a card active based only on a browser response.</p><p class="doc-note">The public webhook examples show card-created and card-transaction events. The signature header and signing algorithm must be confirmed with ZiiroPay.</p></article></div></div></section>
+
+      <section class="page" id="page-webhooks"><div class="page-heading"><div><p class="eyebrow">EVENT DELIVERY</p><h1>Webhooks</h1><p class="muted">Send real-time provider events to each connected business.</p></div><button class="btn btn-primary" id="addWebhook">＋ Add endpoint</button></div><div class="notice warning-notice"><span class="notice-icon">!</span><div><b>Webhook signature verification is not yet configured</b><p>Do not process production card or balance events until ZiiroPay confirms the signature header and signing method.</p></div></div><article class="panel empty-panel"><div class="empty-icon">⌁</div><h2>No webhook endpoints yet</h2><p>Add an HTTPS endpoint for your application to receive KYC and card status updates.</p><button class="btn btn-secondary" id="addWebhook2">Add your first endpoint</button></article></section>
+      <footer class="footer"><span>© 2026 Zytrelix API Infrastructure</span><span>Sandbox workspace <i></i> All systems normal</span></footer>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+  <div class="modal-backdrop" id="modal"><div class="modal"><button class="modal-close" id="modalClose">×</button><div class="modal-icon">✦</div><h2 id="modalTitle">Generate API key</h2><p id="modalText">Create a sandbox key for a connected business.</p><label for="keyName">Business / application name</label><input id="keyName" placeholder="e.g. My fintech app"/><div class="modal-actions"><button class="btn btn-secondary" id="cancelModal">Cancel</button><button class="btn btn-primary" id="confirmModal">Generate key</button></div></div></div>
+  <script src="/app.js"></script>
+</body>
+</html>
