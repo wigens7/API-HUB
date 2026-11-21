@@ -2,12 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#091426"><title>Zytrelix API Hub</title>
+  <meta name="theme-color" content="#091426"><meta name="robots" content="noindex"><title>Sign in · Zytrelix API Hub</title>
   <link rel="stylesheet" href="/styles.css">
-  <script src="/app.js" defer></script>
+  <script src="/common.js" defer></script>
+  <script src="/auth.js" defer></script>
 </head>
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
   <section id="authScreen" class="auth-shell">
     <div class="auth-brand"><div class="brand-mark">Z</div><div><strong>ZYTRELIX</strong><span>API INFRASTRUCTURE</span></div></div>
     <div class="auth-card">
@@ -29,59 +31,4 @@
       <p class="auth-foot">Business registrations require platform approval before API access.</p>
     </div>
     <div class="auth-bottom">Secure API infrastructure · Sandbox by default</div>
-  </section>
-
-  <div id="appShell" class="app-shell hidden">
-    <aside id="sidebar" class="sidebar">
-      <a class="brand" href="#overview"><div class="brand-mark">Z</div><div><strong>ZYTRELIX</strong><span>API INFRASTRUCTURE</span></div></a>
-      <div class="workspace-label">WORKSPACE</div>
-      <nav id="mainNav">
-        <button class="nav-item active" data-page="overview"><span>◫</span> Overview</button>
-        <button class="nav-item business-only" data-page="keys"><span>⌘</span> API keys</button>
-        <button class="nav-item business-only" data-page="kyc"><span>▤</span> KYC submissions</button>
-        <button class="nav-item business-only" data-page="cards"><span>▣</span> Virtual cards</button>
-        <button class="nav-item business-only" data-page="transactions"><span>↔</span> Transactions</button>
-        <button class="nav-item admin-only hidden" data-page="businesses"><span>▦</span> Businesses</button>
-        <button class="nav-item admin-only hidden" data-page="audit"><span>≋</span> Audit log</button>
-        <button class="nav-item" data-page="docs"><span>⌑</span> API documentation</button>
-      </nav>
-      <div class="sidebar-bottom"><div class="provider-status"><i></i><div><b>ZiiroPay</b><small id="providerLabel">Not configured</small></div></div><button id="logoutBtn" class="logout-btn">↪ Sign out</button></div>
-    </aside>
-    <main class="main-area">
-      <header class="topbar"><button id="mobileMenu" class="mobile-menu">☰</button><div class="breadcrumb">Workspace <span>/</span> <b id="crumb">Overview</b></div><div class="top-actions"><span id="modePill" class="mode-pill">SANDBOX</span><div class="user-chip"><div id="userInitial" class="avatar">U</div><div><b id="userName">User</b><small id="userRole">Business</small></div></div></div></header>
-      <div class="content">
-        <section id="page-overview" class="page active">
-          <div class="page-head"><div><div class="eyebrow">CONTROL CENTER</div><h1 id="welcomeTitle">Overview</h1><p class="muted">Live account data from your Zytrelix workspace.</p></div><button id="quickCreateKey" class="btn primary business-only">＋ Create API key</button></div>
-          <div class="notice"><span>ⓘ</span><div><b id="environmentNotice">Sandbox environment</b><p id="environmentText">Provider operations remain in sandbox until ZiiroPay enables your production credentials.</p></div></div>
-          <div id="businessStats" class="stats-grid">
-            <article class="stat-card"><span>Active API keys</span><strong id="statKeys">0</strong><small>Keys currently enabled</small></article>
-            <article class="stat-card"><span>KYC submissions</span><strong id="statKyc">0</strong><small id="statKycMeta">0 approved</small></article>
-            <article class="stat-card"><span>Virtual cards</span><strong id="statCards">0</strong><small>Cards recorded in workspace</small></article>
-            <article class="stat-card"><span>API requests, 30 days</span><strong id="statRequests">0</strong><small>Authenticated partner requests</small></article>
-          </div>
-          <div id="adminStats" class="stats-grid hidden">
-            <article class="stat-card"><span>Businesses</span><strong id="statBusinesses">0</strong><small id="statBusinessesMeta">0 active</small></article>
-            <article class="stat-card"><span>KYC submissions</span><strong id="adminStatKyc">0</strong><small>Across all businesses</small></article>
-            <article class="stat-card"><span>Virtual cards</span><strong id="adminStatCards">0</strong><small>Recorded cards</small></article>
-            <article class="stat-card"><span>API requests, 30 days</span><strong id="adminStatRequests">0</strong><small>Across all businesses</small></article>
-          </div>
-          <div class="grid-two"><article class="panel"><div class="panel-head"><div><h2>Getting started</h2><p class="muted">Complete these steps before production.</p></div></div><ol class="check-list"><li><span>1</span><div><b>Configure PostgreSQL</b><small>Connect Railway PostgreSQL using DATABASE_URL.</small></div></li><li><span>2</span><div><b>Configure ZiiroPay credentials</b><small>Add your provider key in Railway Variables, never in frontend code.</small></div></li><li><span>3</span><div><b>Get reseller approval</b><small>Obtain written approval for multi-business KYC and card issuing.</small></div></li><li><span>4</span><div><b>Test in Sandbox</b><small>Use test credentials and confirm each provider response.</small></div></li></ol></article><article class="panel"><div class="panel-head"><div><h2>Provider connection</h2><p class="muted">Server-side configuration status.</p></div><span id="connectionBadge" class="status-tag warning">Checking</span></div><div class="provider-line"><div class="provider-logo">Z</div><div><b>ZiiroPay</b><small>Virtual card provider</small></div></div><div class="detail-row"><span>Credentials</span><b id="providerConfigured">Not configured</b></div><div class="detail-row"><span>Environment</span><b id="providerMode">Sandbox</b></div><div class="detail-row"><span>Database</span><b id="databaseStatus">Checking</b></div><a class="text-link" href="https://ziiropay.readme.io/" target="_blank" rel="noopener">Open provider documentation ↗</a></article></div>
-        </section>
-
-        <section id="page-keys" class="page"><div class="page-head"><div><div class="eyebrow">DEVELOPER TOOLS</div><h1>API keys</h1><p class="muted">Create and revoke credentials for your applications.</p></div><button id="createKeyBtn" class="btn primary">＋ Create API key</button></div><div class="notice"><span>♢</span><div><b>Protect your API keys</b><p>Store keys on your server. Never expose secret keys in a browser or mobile application.</p></div></div><article class="panel"><div class="panel-head"><div><h2>Your credentials</h2><p class="muted">A secret is displayed only once when created.</p></div></div><div class="table-wrap"><table><thead><tr><th>APPLICATION</th><th>KEY PREFIX</th><th>ENVIRONMENT</th><th>CREATED</th><th>LAST USED</th><th>STATUS</th><th></th></tr></thead><tbody id="keysRows"><tr><td colspan="7" class="empty">No API keys created yet.</td></tr></tbody></table></div></article></section>
-        <section id="page-kyc" class="page"><div class="page-head"><div><div class="eyebrow">CUSTOMER VERIFICATION</div><h1>KYC submissions</h1><p class="muted">Submissions sent to ZiiroPay through your API integration.</p></div><button id="refreshKyc" class="btn secondary">↻ Refresh</button></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>CUSTOMER</th><th>COUNTRY</th><th>PROVIDER CUSTOMER ID</th><th>SUBMITTED</th><th>STATUS</th></tr></thead><tbody id="kycRows"><tr><td colspan="5" class="empty">No KYC submissions yet.</td></tr></tbody></table></div></article></section>
-        <section id="page-cards" class="page"><div class="page-head"><div><div class="eyebrow">CARD MANAGEMENT</div><h1>Virtual cards</h1><p class="muted">Cards issued for customers belonging to your business.</p></div><button id="refreshCards" class="btn secondary">↻ Refresh</button></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>CARDHOLDER</th><th>PROVIDER CARD ID</th><th>LAST FOUR</th><th>STATUS</th><th>CREATED</th></tr></thead><tbody id="cardsRows"><tr><td colspan="5" class="empty">No cards recorded yet.</td></tr></tbody></table></div></article></section>
-        <section id="page-transactions" class="page"><div class="page-head"><div><div class="eyebrow">FINANCIAL ACTIVITY</div><h1>Transactions</h1><p class="muted">Funding and withdrawal activity recorded by Zytrelix.</p></div><button id="refreshTransactions" class="btn secondary">↻ Refresh</button></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>REFERENCE</th><th>TYPE</th><th>AMOUNT</th><th>STATUS</th><th>DATE</th></tr></thead><tbody id="transactionsRows"><tr><td colspan="5" class="empty">No transactions recorded yet.</td></tr></tbody></table></div></article></section>
-        <section id="page-businesses" class="page"><div class="page-head"><div><div class="eyebrow">PLATFORM ADMINISTRATION</div><h1>Businesses</h1><p class="muted">Approve, suspend and manage API Hub business accounts.</p></div><button id="refreshBusinesses" class="btn secondary">↻ Refresh</button></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>BUSINESS</th><th>EMAIL</th><th>API KEYS</th><th>REGISTERED</th><th>STATUS</th><th>ACTION</th></tr></thead><tbody id="businessRows"><tr><td colspan="6" class="empty">No businesses registered.</td></tr></tbody></table></div></article></section>
-        <section id="page-audit" class="page"><div class="page-head"><div><div class="eyebrow">SECURITY</div><h1>Audit log</h1><p class="muted">Recent administrative and account events.</p></div><button id="refreshAudit" class="btn secondary">↻ Refresh</button></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>EVENT</th><th>BUSINESS ID</th><th>DETAILS</th><th>IP</th><th>DATE</th></tr></thead><tbody id="auditRows"><tr><td colspan="5" class="empty">No audit events yet.</td></tr></tbody></table></div></article></section>
-        <section id="page-docs" class="page"><div class="page-head"><div><div class="eyebrow">INTEGRATION GUIDE</div><h1>API documentation</h1><p class="muted">Use your business API key to authenticate requests.</p></div></div><article class="panel docs-panel"><div class="docs-callout"><b>Base URL</b><code id="baseUrl">https://your-domain.com/v1</code><button class="btn small secondary" id="copyBaseUrl">Copy</button></div><h2>Authentication</h2><p>Send your API key in the <code>X-API-Key</code> header. Do not send the ZiiroPay provider key from your application.</p><pre><code>X-API-Key: zy_test_your_secret_key</code></pre><h2>Available endpoints</h2><div class="endpoint"><b>GET</b><code>/v1/status</code><span>Check API key and workspace status</span></div><div class="endpoint"><b>POST</b><code>/v1/kyc</code><span>Submit a customer KYC to ZiiroPay</span></div><div class="endpoint"><b>GET</b><code>/v1/kyc/status?email=customer@example.com</code><span>Retrieve provider KYC status</span></div><div class="endpoint"><b>POST</b><code>/v1/cards</code><span>Create a card for an approved customer</span></div><div class="endpoint"><b>GET</b><code>/v1/cards</code><span>List cards belonging to your business</span></div><div class="endpoint"><b>GET</b><code>/v1/cards/:cardId</code><span>Get card details</span></div><div class="endpoint"><b>POST</b><code>/v1/cards/:cardId/funding</code><span>Fund or withdraw from a card</span></div><div class="endpoint"><b>POST</b><code>/v1/cards/:cardId/status</code><span>Freeze or activate a card</span></div><h2>KYC request fields</h2><p>Provider-required fields include first_name, last_name, id_number, email, phone_number, date_of_birth, dial_code, id_front_image (Base64), address fields, country (three-letter code such as HTI), id_type, occupation, employment_status, account_purpose, annual_salary, expected_monthly_volume and place_of_birth.</p><h2>Example request</h2><pre><code>curl -X POST https://your-domain.com/v1/kyc \
-  -H "X-API-Key: YOUR_ZYTRELIX_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{ "first_name": "Jean", "last_name": "Pierre", "email": "jean@example.com", "country": "HTI" }'</code></pre><p class="docs-warning">The example is abbreviated. Submit all required KYC fields listed above. KYC image data is forwarded to ZiiroPay and is not stored by Zytrelix. Confirm provider approval, permitted countries, payload format and production access before handling real customers.</p><a class="text-link" href="https://ziiropay.readme.io/" target="_blank" rel="noopener">Read ZiiroPay's official API documentation ↗</a></article></section>
-      </div>
-    </main>
-  </div>
-
-  <div id="keyModal" class="modal-backdrop hidden"><div class="modal"><button class="modal-x" data-close="keyModal">×</button><div class="eyebrow">NEW CREDENTIAL</div><h2>Create API key</h2><p class="muted">Choose a name and environment for this application.</p><form id="keyForm" class="form-stack"><label>Application name<input name="label" required maxlength="80" placeholder="Mobile app / Website"></label><label>Environment<select name="environment"><option value="sandbox">Sandbox</option><option value="production">Production, only if approved</option></select></label><div class="modal-actions"><button type="button" class="btn secondary" data-close="keyModal">Cancel</button><button type="submit" class="btn primary">Generate key</button></div></form></div></div>
-  <div id="secretModal" class="modal-backdrop hidden"><div class="modal"><div class="eyebrow">COPY NOW</div><h2>Your new API key</h2><p class="muted">This secret is shown once. Copy it and store it securely on your server.</p><pre id="newSecret" class="secret-value"></pre><div class="modal-actions"><button id="copySecret" class="btn primary">Copy API key</button><button class="btn secondary" data-close="secretModal">Done</button></div></div></div>
 </body></html>

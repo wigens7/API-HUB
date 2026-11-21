@@ -133,3 +133,14 @@ The current webhook receiver is disabled unless `PROVIDER_WEBHOOK_SECRET` is set
 - https://ziiropay.readme.io/reference/freezeactivate-card
 - https://ziiropay.readme.io/reference/create-subaccount
 - https://ziiropay.readme.io/reference/webhook
+
+
+## Access control (admin vs business)
+
+- Pages: `/login` (public), `/dashboard` (business role only), `/admin` (admin role only). Dashboard code for each role is served only to that role; anonymous users are redirected to `/login`, wrong-role users get 403 or are sent to their own dashboard.
+- Sessions are httpOnly, SameSite=Strict cookies. Role, business and business status are re-read from the database on every request, so a suspended business loses access immediately. State-changing cookie requests require the `X-Zytrelix-Client` header and a same-origin `Origin`.
+- `/api/admin/*` requires the admin role. `/api/keys`, `/api/kyc`, `/api/cards`, `/api/transactions`, `/api/activity`, `/api/dashboard` and `/api/subscription` require a business user and only touch that business.
+- Database isolation: tenant requests run as the non-superuser role `zytrelix_tenant` with PostgreSQL row-level security on `business_id = app.business_id`; admin requests run as `zytrelix_admin`. Neither role can read `users.password_hash` or `api_keys.key_hash`. Roles, grants and policies are created at startup.
+- Admin features: approve/suspend businesses, approve/reject KYC (admin decisions are not overwritten by provider sync), revoke any API key, view all transactions, change plan or pause/cancel subscriptions (paused or cancelled subscriptions block the partner API), audit log.
+- Create the first admin with `ADMIN_EMAIL` and `ADMIN_PASSWORD` (12+ characters).
+- Verify: `BASE=... ADMIN_EMAIL=... ADMIN_PASSWORD=... DATABASE_URL=... node scripts/security-check.js`.

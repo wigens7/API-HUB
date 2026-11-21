@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#091426"><meta name="robots" content="noindex"><title>Admin · Zytrelix API Hub</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/common.js" defer></script>
+  <script src="/admin/assets/admin.js" defer></script>
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="appShell" class="app-shell">
+    <aside id="sidebar" class="sidebar">
+      <a class="brand" href="/admin"><div class="brand-mark">Z</div><div><strong>ZYTRELIX</strong><span>API INFRASTRUCTURE</span></div></a>
+      <div class="workspace-label">ADMINISTRATION</div>
+      <nav id="mainNav">
+        <button class="nav-item active" data-page="overview"><span>◫</span> Overview</button>
+        <button class="nav-item" data-page="businesses"><span>▦</span> Businesses</button>
+        <button class="nav-item" data-page="kyc"><span>▤</span> KYC review</button>
+        <button class="nav-item" data-page="keys"><span>⌘</span> API keys</button>
+        <button class="nav-item" data-page="transactions"><span>↔</span> Transactions</button>
+        <button class="nav-item" data-page="subscriptions"><span>▣</span> Subscriptions</button>
+        <button class="nav-item" data-page="audit"><span>≋</span> Audit log</button>
+      </nav>
+      <div class="sidebar-bottom"><div class="provider-status"><i></i><div><b>ZiiroPay</b><small id="providerLabel">—</small></div></div><button id="logoutBtn" class="logout-btn">↪ Sign out</button></div>
+    </aside>
+    <main class="main-area">
+      <header class="topbar"><button id="mobileMenu" class="mobile-menu">☰</button><div class="breadcrumb">Administration <span>/</span> <b id="crumb">Overview</b></div><div class="top-actions"><span id="modePill" class="mode-pill">SANDBOX</span><div class="user-chip"><div id="userInitial" class="avatar">U</div><div><b id="userName">User</b><small id="userRole"></small></div></div></div></header>
+      <div class="content">
+        <section id="page-overview" class="page active">
+          <div class="page-head"><div><div class="eyebrow">PLATFORM ADMINISTRATION</div><h1>Admin overview</h1><p class="muted">Platform-wide data. Visible to administrators only.</p></div></div>
+          <div class="stats-grid">
+            <article class="stat-card"><span>Businesses</span><strong id="statBusinesses">0</strong><small id="statBusinessesMeta">—</small></article>
+            <article class="stat-card"><span>KYC submissions</span><strong id="statKyc">0</strong><small id="statKycMeta">—</small></article>
+            <article class="stat-card"><span>Transactions</span><strong id="statTx">0</strong><small id="statCards">— cards</small></article>
+            <article class="stat-card"><span>API requests, 30 days</span><strong id="statRequests">0</strong><small id="statKeys">— active keys</small></article>
+          </div>
+          <article class="panel"><div class="panel-head"><div><h2>Provider connection</h2><p class="muted">Server-side ZiiroPay configuration.</p></div><span id="connectionBadge" class="status-tag warning">Checking</span></div><div class="detail-row"><span>Credentials</span><b id="providerConfigured">—</b></div><div class="detail-row"><span>Environment</span><b id="providerMode">—</b></div></article>
+        </section>
+        <section id="page-businesses" class="page"><div class="page-head"><div><div class="eyebrow">TENANTS</div><h1>Businesses</h1><p class="muted">Approve, suspend and reactivate business accounts.</p></div><button id="refreshBusinesses" class="btn secondary">↻ Refresh</button></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>BUSINESS</th><th>EMAIL</th><th>KEYS</th><th>REGISTERED</th><th>STATUS</th><th>ACTION</th></tr></thead><tbody id="businessRows"><tr><td colspan="6" class="empty">No businesses registered.</td></tr></tbody></table></div></article></section>
+        <section id="page-kyc" class="page"><div class="page-head"><div><div class="eyebrow">COMPLIANCE</div><h1>KYC review</h1><p class="muted">Approve or reject KYC submissions from any business.</p></div><button id="refreshKyc" class="btn secondary">↻ Refresh</button></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>BUSINESS</th><th>CUSTOMER</th><th>COUNTRY</th><th>SUBMITTED</th><th>STATUS</th><th>ACTION</th></tr></thead><tbody id="kycRows"><tr><td colspan="6" class="empty">No KYC submissions.</td></tr></tbody></table></div></article></section>
+        <section id="page-keys" class="page"><div class="page-head"><div><div class="eyebrow">SECURITY</div><h1>API keys</h1><p class="muted">All active and revoked keys. Secrets are never stored or shown.</p></div><button id="refreshKeys" class="btn secondary">↻ Refresh</button></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>BUSINESS</th><th>APPLICATION</th><th>PREFIX</th><th>ENV</th><th>LAST USED</th><th>STATUS</th><th>ACTION</th></tr></thead><tbody id="keysRows"><tr><td colspan="7" class="empty">No API keys.</td></tr></tbody></table></div></article></section>
+        <section id="page-transactions" class="page"><div class="page-head"><div><div class="eyebrow">FINANCE</div><h1>Transactions</h1><p class="muted">Funding and withdrawals across all businesses.</p></div><button id="refreshTransactions" class="btn secondary">↻ Refresh</button></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>BUSINESS</th><th>REFERENCE</th><th>TYPE</th><th>AMOUNT</th><th>STATUS</th><th>DATE</th></tr></thead><tbody id="transactionsRows"><tr><td colspan="6" class="empty">No transactions.</td></tr></tbody></table></div></article></section>
+        <section id="page-subscriptions" class="page"><div class="page-head"><div><div class="eyebrow">BILLING</div><h1>Subscriptions</h1><p class="muted">Change a business plan, or pause and cancel its API access.</p></div><button id="refreshSubscriptions" class="btn secondary">↻ Refresh</button></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>BUSINESS</th><th>PLAN</th><th>STATUS</th><th>UPDATED</th><th>ACTION</th></tr></thead><tbody id="subscriptionsRows"><tr><td colspan="5" class="empty">No subscriptions.</td></tr></tbody></table></div></article></section>
+        <section id="page-audit" class="page"><div class="page-head"><div><div class="eyebrow">SECURITY</div><h1>Audit log</h1><p class="muted">Recent administrative and account events.</p></div><button id="refreshAudit" class="btn secondary">↻ Refresh</button></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>EVENT</th><th>BUSINESS ID</th><th>DETAILS</th><th>IP</th><th>DATE</th></tr></thead><tbody id="auditRows"><tr><td colspan="5" class="empty">No audit events yet.</td></tr></tbody></table></div></article></section>
+      </div>
+    </main>
+  </div>
+
+</body></html>
