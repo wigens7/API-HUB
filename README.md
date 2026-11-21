@@ -144,3 +144,16 @@ The current webhook receiver is disabled unless `PROVIDER_WEBHOOK_SECRET` is set
 - Admin features: approve/suspend businesses, approve/reject KYC (admin decisions are not overwritten by provider sync), revoke any API key, view all transactions, change plan or pause/cancel subscriptions (paused or cancelled subscriptions block the partner API), audit log.
 - Create the first admin with `ADMIN_EMAIL` and `ADMIN_PASSWORD` (12+ characters).
 - Verify: `BASE=... ADMIN_EMAIL=... ADMIN_PASSWORD=... DATABASE_URL=... node scripts/security-check.js`.
+
+
+## White-label card issuing (multi-tenant)
+
+ZYTRELIX is the only customer-facing platform; the card issuer is a server-side detail and its identifiers and credentials are never returned by any API.
+
+Flow: business registers and creates an API key, then `POST /v1/customers`, `POST /v1/customers/:id/kyc`, `GET /v1/customers/:id/kyc` (synced from the provider), `POST /v1/wallet/deposit-address` (USDT), deposits credit the wallet only after the provider's history confirms them, then `POST /v1/cards`, `/fund`, `/withdraw`, `/freeze`, `/activate`, `GET /v1/cards/:id`, `/history`.
+
+- Card creation, funding and withdrawal require an `Idempotency-Key` header. Same key and body replays the stored result; a timeout leaves the operation `unknown` with funds held until the reconciler or an admin resolves it.
+- Webhooks: register `https://<domain>/api/webhooks/ziiropay/<PROVIDER_WEBHOOK_SECRET>`. Payloads are never trusted for money: they only trigger re-verification.
+- Env: `ZIIROPAY_PUBLIC_KEY`, `ZIIROPAY_MODE` (sandbox or production), `PROVIDER_WEBHOOK_SECRET`, `PROVIDER_PRODUCTION_ENABLED` (must be `true` before live financial operations), `RECONCILE_INTERVAL_SECONDS`, `MAX_OPERATION_AMOUNT`.
+- Tests: `node scripts/stub-provider.js` (local stand-in), start the server with `ZIIROPAY_BASE_URL=http://127.0.0.1:9099 ZIIROPAY_PUBLIC_KEY=stub-public-key PROVIDER_WEBHOOK_SECRET=... PROVIDER_TIMEOUT_MS=1500`, then `node scripts/finance-check.js` and `node scripts/security-check.js`. These run against a stub, not the real provider.
+- Open questions for the provider: `docs/ZIIROPAY_CLARIFICATIONS.md`.

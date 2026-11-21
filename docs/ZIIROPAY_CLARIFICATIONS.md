@@ -1,0 +1,15 @@
+# Items to clarify with ZiiroPay before enabling production
+
+Production financial operations stay disabled (`ZIIROPAY_MODE=production` requires `PROVIDER_PRODUCTION_ENABLED=true`) until these are answered in writing. Everything below is based only on https://ziiropay.readme.io/.
+
+1. **Reseller and multi-tenant permission.** One `public_key` serves every ZYTRELIX business. Is white-label reselling to third-party businesses permitted on this account, and does it need a separate agreement or key per tenant?
+2. **Multi-tenant KYC.** `cardkycstatus` looks a customer up by email only. If two businesses onboard the same person, the provider cannot tell them apart. ZYTRELIX refuses a second tenant's KYC for an email already submitted (generic 409). Is there a per-tenant reference field, or is one customer per email globally the intended model?
+3. **Cardholder ownership.** Who is the legal cardholder and KYC-responsible party: the end user, the business, or ZYTRELIX? Who handles disputes and compliance reviews?
+4. **Webhook authenticity.** No signature, HMAC or source IP list is documented. ZYTRELIX uses a secret path token and never trusts payloads: deposits are re-verified through `GetSubHistory`, cards by re-fetching card detail. Is a signing scheme available?
+5. **Webhook registration for sub-account deposits.** Only `/generate-address` documents `webhook_url`. How are `coin.received.success` events registered for addresses made by `GenerateCoins`? Until answered, deposits rely on the polling reconciler (`RECONCILE_INTERVAL_SECONDS`, default 120).
+6. **Deposits and settlement.** How do sub-account USDT balances reach the main USD balance that funds cards? What are the rate (ZYTRELIX assumes 1 USDT = 1 USD) and fees? Is `amount` in `GetSubHistory` gross or net of `fee` (ZYTRELIX credits amount minus fee)?
+7. **Card funding source.** Which balance does `fund-withdraw-nfccard` debit and credit? What do withdrawals return (`fee`, `credited`) and is the wallet credited gross or net (ZYTRELIX credits the requested amount)?
+8. **Response schemas and status values.** Responses for `cardkyc`, `create-nfc-card`, `fund-withdraw-nfccard` and `nfc-card-transactions` are undocumented. So is the KYC `status` vocabulary (ZYTRELIX maps approv* to approved, reject/declin/fail to rejected, anything else to pending) and what marks failure beyond `success:false`.
+9. **Idempotency.** No idempotency key exists. After a timeout the outcome is unknown. ZYTRELIX holds funds, marks the operation `unknown`, and an admin resolves it. Is there a lookup by reference?
+10. **Card data and PCI.** `fetch-nfccard-detail` returns PAN and CVV and hosted URLs (`card_number_url`, `cvv_url`). What are the rules for white-label display? ZYTRELIX masks by default and only reveals when an admin enables it per business, without storing or logging the data.
+11. **Limits and parity.** Rate limits, sandbox versus live behaviour, whether terminating a card refunds its balance, and whether live mode needs written approval.

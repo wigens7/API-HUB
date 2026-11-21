@@ -81,10 +81,12 @@ async function register(name) { const c = new Client(); const r = await c.post('
  console.log('--- tenant isolation (seed data directly, then read through the API)');
  const seed = async (t, label) => {
   const k = await pool.query(`INSERT INTO kyc_submissions(business_id,customer_email,customer_name,country,status,provider_customer_id) VALUES($1,$2,$3,'HTI','submitted',$4) RETURNING id`, [t.bizId, `cust-${label}-${tag}@example.com`, 'Cust ' + label, 'cid-' + label + tag]);
-  const c = await pool.query(`INSERT INTO cards(business_id,provider_card_id,cardholder_name,status) VALUES($1,$2,$3,'active') RETURNING id,provider_card_id`, [t.bizId, 'card-' + label + tag, 'Holder ' + label]);
+  const pub = 'cus_' + require('crypto').randomBytes(12).toString('hex');
+  await pool.query(`INSERT INTO end_users(public_id,business_id,email,first_name,last_name,kyc_status,provider_customer_id) VALUES($1,$2,$3,'Cust',$4,'approved',$5)`, [pub, t.bizId, `cust-${label}-${tag}@example.com`, label, 'cid-' + label + tag]);
+  const c = await pool.query(`INSERT INTO cards(business_id,provider_card_id,cardholder_name,status) VALUES($1,$2,$3,'active') RETURNING id`, [t.bizId, 'card-' + label + tag, 'Holder ' + label]);
   await pool.query(`INSERT INTO transactions(business_id,card_id,type,amount,status) VALUES($1,$2,'fund',10,'ok')`, [t.bizId, c.rows[0].id]);
   await pool.query(`INSERT INTO api_usage(business_id,method,path,status_code,duration_ms) VALUES($1,'GET','/seed-${label}',200,1)`, [t.bizId]);
-  return { kyc: k.rows[0].id, card: c.rows[0].provider_card_id };
+  return { kyc: k.rows[0].id, card: c.rows[0].id, customer: pub };
  };
  const dA = await seed(A, 'A'), dB = await seed(B, 'B');
  const seesOnly = (rows, field, mine, theirs) => rows.some(x => String(x[field]).includes(mine)) && !rows.some(x => String(x[field]).includes(theirs));
@@ -96,12 +98,12 @@ async function register(name) { const c = new Client(); const r = await c.post('
  r = await A.c.get('/api/keys'); check('API key list never exposes key_hash', !JSON.stringify(r.data).includes('key_hash'));
  r = await A.c.del(`/api/keys/${keys.B.id}`); check("A cannot revoke B's key -> 404", r.status === 404);
  r = await B.c.get('/api/keys'); check("B's key still active after A's attempt", r.data.keys[0].revoked_at === null);
- r = await anon.get('/v1/cards', { apiKey: true, headers: { 'x-api-key': keys.A.secret } }); check('A partner API lists only A cards', r.status === 200 && r.data.cards.length === 1 && r.data.cards[0].provider_card_id === dA.card, JSON.stringify(r.data));
+ r = await anon.get('/v1/cards', { apiKey: true, headers: { 'x-api-key': keys.A.secret } }); check('A partner API lists only A cards', r.status === 200 && r.data.cards.length === 1 && r.data.cards[0].id === dA.card && !JSON.stringify(r.data).includes('provider_card_id'), JSON.stringify(r.data));
  r = await anon.get(`/v1/cards/${dB.card}`, { apiKey: true, headers: { 'x-api-key': keys.A.secret } }); check("A key cannot read B's card -> 404", r.status === 404, r.status);
- r = await anon.post(`/v1/cards/${dB.card}/funding`, { amount: 5 }, { apiKey: true, headers: { 'x-api-key': keys.A.secret } }); check("A key cannot fund B's card -> 404", r.status === 404, r.status);
+ r = await anon.post(`/v1/cards/${dB.card}/funding`, { amount: '5' }, { apiKey: true, headers: { 'x-api-key': keys.A.secret, 'idempotency-key': 'sec-fund-' + tag + '-1' } }); check("A key cannot fund B's card -> 404", r.status === 404, r.status);
  r = await anon.post(`/v1/cards/${dB.card}/status`, { status: 'frozen' }, { apiKey: true, headers: { 'x-api-key': keys.A.secret } }); check("A key cannot freeze B's card -> 404", r.status === 404, r.status);
  r = await anon.get(`/v1/kyc/status?email=cust-B-${tag}@example.com`, { apiKey: true, headers: { 'x-api-key': keys.A.secret } }); check("A key cannot query B's KYC -> 404", r.status === 404, r.status);
- r = await anon.post('/v1/cards', { name: 'x', customer_id: 'cid-B' + tag, amount: 5 }, { apiKey: true, headers: { 'x-api-key': keys.A.secret } }); check("A key cannot issue card for B's customer -> 403", r.status === 403, r.status);
+ r = await anon.post('/v1/cards', { name: 'x', customer_id: dB.customer, amount: '5' }, { apiKey: true, headers: { 'x-api-key': keys.A.secret, 'idempotency-key': 'sec-card-' + tag + '-1' } }); check("A key cannot issue card for B's customer -> 404", r.status === 404, r.status);
  r = await anon.get('/v1/status', { apiKey: true, headers: { 'x-api-key': 'zy_test_nonsense' } }); check('invalid API key -> 401', r.status === 401);
  r = await anon.get('/v1/status'); check('missing API key -> 401', r.status === 401);
  r = await A.c.get('/v1/status'); check('session cookie is not accepted on partner API', r.status === 401);

@@ -7,20 +7,23 @@ const path = require('path');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { Pool } = require('pg');
+const { pool, scoped, UUID_RE } = require('./lib/db');
+const { providerRequest, redactProvider, P, configured: providerConfigured, PROVIDER_MODE: providerModeFn } = require('./lib/provider');
+const F = require('./lib/finance');
+const { financeSchema, financeTenantRows, financeSecurityGrants } = require('./lib/schema');
+const registerWallet = require('./routes/wallet');
+const partnerRouter = require('./routes/partner');
+const webhookHandler = require('./routes/webhooks');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const JWT_SECRET = process.env.JWT_SECRET;
-const PROVIDER_BASE = (process.env.ZIIROPAY_BASE_URL || 'https://www.ziiropay.com/api').replace(/\/$/, '');
-const PROVIDER_KEY = process.env.ZIIROPAY_PUBLIC_KEY;
+const PROVIDER_KEY = process.env.ZIIROPAY_PUBLIC_KEY; // read via lib/provider; kept for status display only
 const PROVIDER_MODE = process.env.ZIIROPAY_MODE || 'sandbox';
 const COOKIE_NAME = 'zy_session';
 const SESSION_HOURS = 12;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PLANS = ['free', 'starter', 'growth', 'enterprise'];
 const SUBSCRIPTION_STATUSES = ['active', 'paused', 'cancelled'];
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined, max: 10, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 });
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -29,7 +32,7 @@ const origins = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).f
 app.use(cors({ origin: (origin, cb) => !origin || origins.includes(origin) ? cb(null, true) : cb(null, false), methods: ['GET','POST','PATCH','DELETE'], allowedHeaders: ['Content-Type','Authorization','X-API-Key','X-Idempotency-Key','X-Zytrelix-Client'] }));
 app.use(express.json({ limit: '12mb' }));
 app.use('/api/', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
-app.use('/api/', rateLimit({ windowMs: 60_000, limit: 90, standardHeaders: true, legacyHeaders: false }));
+app.use('/api/', rateLimit({ windowMs: 60_000, limit: 90, standardHeaders: true, legacyHeaders: false, skip: req => req.path.startsWith('/webhooks/') }));
 app.use('/v1/', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false }));
 const authLimiter = rateLimit({ windowMs: 15 * 60_000, limit: Number(process.env.AUTH_RATE_LIMIT || 15), standardHeaders: true, legacyHeaders: false, message: { error: 'Too many attempts. Try again later.' } });
 // Only public, non-sensitive assets are served statically. Dashboard code lives in views/ behind role checks.
@@ -106,6 +109,7 @@ INSERT INTO subscriptions (business_id) SELECT id FROM businesses ON CONFLICT DO
 // rows whose business_id equals app.business_id. The admin role has its own, narrower privilege set
 // (no password hashes, no API key hashes). If the context is missing, the policies match no rows.
 const tenantRows = ['kyc_submissions', 'cards', 'transactions', 'api_usage', 'api_keys', 'webhook_endpoints', 'subscriptions', 'audit_logs'];
+// finance tables get RLS and grants from lib/schema.js
 const TENANT_PREDICATE = `business_id = NULLIF(current_setting('app.business_id', true), '')::uuid`;
 const security = `
 DO $$ BEGIN
@@ -150,22 +154,8 @@ GRANT SELECT, UPDATE (status, admin_decision, reviewed_by, reviewed_at, review_n
 GRANT SELECT ON cards, transactions, api_usage TO zytrelix_admin;
 GRANT SELECT, INSERT ON audit_logs TO zytrelix_admin;
 GRANT SELECT, INSERT, UPDATE ON subscriptions TO zytrelix_admin;
+${financeSecurityGrants}
 `;
-
-/** Run fn inside a transaction bound to one tenant (ctx.businessId) or to the admin role (ctx.admin). */
-async function scoped(ctx, fn) {
- if (!ctx.admin && !UUID_RE.test(String(ctx.businessId || ''))) { const e = new Error('Tenant context missing.'); e.status = 403; throw e; }
- const client = await pool.connect();
- try {
-  await client.query('BEGIN');
-  await client.query(`SET LOCAL ROLE ${ctx.admin ? 'zytrelix_admin' : 'zytrelix_tenant'}`);
-  if (!ctx.admin) await client.query(`SELECT set_config('app.business_id', $1, true)`, [ctx.businessId]);
-  const result = await fn(client);
-  await client.query('COMMIT');
-  return result;
- } catch (err) { await client.query('ROLLBACK').catch(() => {}); throw err; }
- finally { client.release(); }
-}
 
 function safeEqual(a, b) { const aa = Buffer.from(String(a)); const bb = Buffer.from(String(b)); return aa.length === bb.length && crypto.timingSafeEqual(aa, bb); }
 function hashKey(value) { return crypto.createHash('sha256').update(value).digest('hex'); }
@@ -229,23 +219,10 @@ async function requireApiKey(req,res,next) {
   await scoped({ businessId: row.business_id }, c => c.query('UPDATE api_keys SET last_used_at=NOW() WHERE id=$1', [row.key_id])); next();
  } catch (e) { next(e); }
 }
-async function providerRequest(endpoint, method, fields = {}) {
- if (!PROVIDER_KEY) { const e = new Error('Card services are not configured on the server.'); e.status = 503; throw e; }
- const params = new URLSearchParams({ public_key: PROVIDER_KEY });
- for (const [key,value] of Object.entries(fields)) if (value !== undefined && value !== null && value !== '') params.set(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
- if (PROVIDER_MODE === 'sandbox') params.set('mode','sandbox');
- const url = `${PROVIDER_BASE}${endpoint}?${params.toString()}`;
- const response = await fetch(url, { method, headers: { accept: 'application/json', 'content-type': 'application/json' }, ...(method === 'POST' ? { body: '{}' } : {}), signal: AbortSignal.timeout(25000) });
- const raw = await response.text(); let data; try { data = raw ? JSON.parse(raw) : {}; } catch { data = { message: raw.slice(0,1000) }; }
- if (!response.ok || data.success === false) { const e = new Error(data.message || `Upstream service returned HTTP ${response.status}`); e.status = response.status >= 400 && response.status < 500 ? 422 : 502; e.providerStatus = response.status; throw e; }
- return data;
-}
-function redactProvider(data) { if (!data || typeof data !== 'object') return data; const copy = JSON.parse(JSON.stringify(data)); const scrub = obj => { if (!obj || typeof obj !== 'object') return; for (const key of Object.keys(obj)) { if (/card_number|cvv|id_front_image|id_back_image|selfie|secret|public_key|token/i.test(key)) obj[key] = '[REDACTED]'; else if (obj[key] && typeof obj[key] === 'object') scrub(obj[key]); } }; scrub(copy); return copy; }
-
 async function initDb() {
  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required. Add a PostgreSQL database and set DATABASE_URL.');
  if (!JWT_SECRET || JWT_SECRET.length < 32) throw new Error('JWT_SECRET must be at least 32 characters.');
- await pool.query(schema);
+ await pool.query(schema + financeSchema);
  await pool.query(security);
  const adminEmail = (process.env.ADMIN_EMAIL || '').toLowerCase().trim();
  if (adminEmail && process.env.ADMIN_PASSWORD) {
@@ -273,7 +250,7 @@ app.post('/api/auth/register', authLimiter, asyncRoute(async (req,res) => {
  const name = String(req.body.name || '').trim(), businessName = String(req.body.businessName || '').trim(), email = String(req.body.email || '').toLowerCase().trim(), password = String(req.body.password || '');
  if (!name || !businessName || !/^\S+@\S+\.\S+$/.test(email) || password.length < 12) return res.status(400).json({ error: 'Enter your name, business name, valid email and a password of at least 12 characters.' });
  const client = await pool.connect();
- try { await client.query('BEGIN'); const b = await client.query('INSERT INTO businesses(name,email) VALUES($1,$2) RETURNING id,status', [businessName,email]); const p = await bcrypt.hash(password,12); const u = await client.query(`INSERT INTO users(business_id,name,email,password_hash,role) VALUES($1,$2,$3,$4,'business') RETURNING id,name,email,role,business_id`, [b.rows[0].id,name,email,p]); await client.query(`INSERT INTO subscriptions(business_id) VALUES($1)`, [b.rows[0].id]); await auditEvent(client, { businessId: b.rows[0].id, sub: u.rows[0].id }, 'business.registered', { businessName }, req.ip); await client.query('COMMIT'); setSession(req, res, u.rows[0]); res.status(201).json({ user:u.rows[0], business:{id:b.rows[0].id,status:b.rows[0].status}, redirect:'/dashboard' }); }
+ try { await client.query('BEGIN'); const b = await client.query('INSERT INTO businesses(name,email) VALUES($1,$2) RETURNING id,status', [businessName,email]); const p = await bcrypt.hash(password,12); const u = await client.query(`INSERT INTO users(business_id,name,email,password_hash,role) VALUES($1,$2,$3,$4,'business') RETURNING id,name,email,role,business_id`, [b.rows[0].id,name,email,p]); await client.query(`INSERT INTO subscriptions(business_id) VALUES($1)`, [b.rows[0].id]); await client.query(`INSERT INTO wallets(business_id) VALUES($1)`, [b.rows[0].id]); await auditEvent(client, { businessId: b.rows[0].id, sub: u.rows[0].id }, 'business.registered', { businessName }, req.ip); await client.query('COMMIT'); setSession(req, res, u.rows[0]); res.status(201).json({ user:u.rows[0], business:{id:b.rows[0].id,status:b.rows[0].status}, redirect:'/dashboard' }); }
  catch(e) { await client.query('ROLLBACK').catch(()=>{}); if (e.code==='23505') return res.status(409).json({error:'An account with this email already exists.'}); throw e; } finally { client.release(); }
 }));
 const DUMMY_HASH = bcrypt.hashSync('timing-equalizer', 12);
@@ -306,8 +283,11 @@ app.post('/api/keys', biz, asyncRoute(async(req,res)=>{const label=String(req.bo
  const out=await tenantDb(req,async c=>{const b=await c.query('SELECT status FROM businesses WHERE id=$1',[req.auth.businessId]);if(!b.rowCount||b.rows[0].status!=='active')return {error:'Your business must be approved before creating API keys.'};if(environment!==PROVIDER_MODE)return {error:`${environment} API keys are unavailable while provider mode is ${PROVIDER_MODE}.`};const q=await c.query('INSERT INTO api_keys(business_id,label,key_prefix,key_hash,environment) VALUES($1,$2,$3,$4,$5) RETURNING id,label,key_prefix,environment,created_at',[req.auth.businessId,label,raw.slice(0,15),hashKey(raw),environment]);await auditEvent(c,req.auth,'api_key.created',{keyId:q.rows[0].id,environment},req.ip);return {key:q.rows[0]};});
  if(out.error)return res.status(403).json({error:out.error});res.status(201).json({key:out.key,secret:raw,warning:'Copy this key now. It will not be shown again.'});}));
 app.delete('/api/keys/:id', biz, asyncRoute(async(req,res)=>{if(!UUID_RE.test(req.params.id))return res.status(404).json({error:'Active API key not found.'});const q=await tenantDb(req,async c=>{const r=await c.query('UPDATE api_keys SET revoked_at=NOW() WHERE id=$1 AND business_id=$2 AND revoked_at IS NULL RETURNING id',[req.params.id,req.auth.businessId]);if(r.rowCount)await auditEvent(c,req.auth,'api_key.revoked',{keyId:req.params.id},req.ip);return r;});if(!q.rowCount)return res.status(404).json({error:'Active API key not found.'});res.json({ok:true});}));
-app.get('/api/kyc', biz, asyncRoute(async(req,res)=>{const q=await tenantDb(req,c=>c.query(`SELECT id,customer_email,customer_name,country,status,provider_customer_id,created_at,updated_at FROM kyc_submissions WHERE business_id=$1 ORDER BY created_at DESC LIMIT 100`,[req.auth.businessId]));res.json({submissions:q.rows});}));
-app.get('/api/cards', biz, asyncRoute(async(req,res)=>{const q=await tenantDb(req,c=>c.query('SELECT id,provider_card_id,cardholder_name,last_four,status,currency,created_at FROM cards WHERE business_id=$1 ORDER BY created_at DESC LIMIT 100',[req.auth.businessId]));res.json({cards:q.rows});}));
+app.get('/api/kyc', biz, asyncRoute(async(req,res)=>{const q=await tenantDb(req,c=>c.query(`SELECT k.id,k.customer_email,k.customer_name,k.country,k.status,e.public_id AS customer_id,k.created_at,k.updated_at FROM kyc_submissions k LEFT JOIN end_users e ON e.id=k.end_user_id WHERE k.business_id=$1 ORDER BY k.created_at DESC LIMIT 100`,[req.auth.businessId]));res.json({submissions:q.rows});}));
+app.get('/api/customers', biz, asyncRoute(async(req,res)=>{const q=await tenantDb(req,c=>c.query('SELECT * FROM end_users WHERE business_id=$1 ORDER BY created_at DESC LIMIT 200',[req.auth.businessId]));res.json({customers:q.rows.map(F.customerView)});}));
+const walletRouter = express.Router(); registerWallet(walletRouter, req => req.auth.businessId, { auditEvent }, '');
+app.use('/api/wallet', biz, walletRouter);
+app.get('/api/cards', biz, asyncRoute(async(req,res)=>{const q=await tenantDb(req,c=>c.query('SELECT c.id,e.public_id AS customer_id,c.cardholder_name,c.last_four,c.brand,c.status,c.provider_balance AS balance,c.currency,c.created_at FROM cards c LEFT JOIN end_users e ON e.id=c.end_user_id WHERE c.business_id=$1 ORDER BY c.created_at DESC LIMIT 100',[req.auth.businessId]));res.json({cards:q.rows});}));
 app.get('/api/transactions', biz, asyncRoute(async(req,res)=>{const q=await tenantDb(req,c=>c.query('SELECT id,provider_reference,type,amount,currency,status,created_at FROM transactions WHERE business_id=$1 ORDER BY created_at DESC LIMIT 100',[req.auth.businessId]));res.json({transactions:q.rows});}));
 app.get('/api/activity', biz, asyncRoute(async(req,res)=>{const q=await tenantDb(req,c=>c.query('SELECT method,path,status_code,duration_ms,created_at FROM api_usage WHERE business_id=$1 ORDER BY created_at DESC LIMIT 100',[req.auth.businessId]));res.json({activity:q.rows});}));
 app.get('/api/subscription', biz, asyncRoute(async(req,res)=>{const q=await tenantDb(req,c=>c.query('SELECT plan,status,updated_at FROM subscriptions WHERE business_id=$1',[req.auth.businessId]));res.json({subscription:q.rows[0]||null});}));
@@ -319,49 +299,62 @@ admin.get('/dashboard', asyncRoute(async (req,res) => {
  const r = await adminDb(req, async c => { const [biz,kyc,cards,tx,usage,keys] = await Promise.all([c.query(`SELECT COUNT(*)::int AS total,COUNT(*) FILTER (WHERE status='active')::int AS active,COUNT(*) FILTER (WHERE status='pending')::int AS pending,COUNT(*) FILTER (WHERE status='suspended')::int AS suspended FROM businesses`),c.query(`SELECT COUNT(*)::int AS total,COUNT(*) FILTER (WHERE status NOT ILIKE '%approved%' AND status NOT ILIKE '%reject%')::int AS pending FROM kyc_submissions`),c.query('SELECT COUNT(*)::int AS total FROM cards'),c.query('SELECT COUNT(*)::int AS total FROM transactions'),c.query("SELECT COUNT(*)::int AS total FROM api_usage WHERE created_at > NOW()-INTERVAL '30 days'"),c.query('SELECT COUNT(*)::int AS total FROM api_keys WHERE revoked_at IS NULL')]); return { biz, kyc, cards, tx, usage, keys }; });
  res.json({ role:'admin', provider:{ configured:Boolean(PROVIDER_KEY), mode:PROVIDER_MODE }, stats:{ businesses:r.biz.rows[0], kyc:r.kyc.rows[0], cards:r.cards.rows[0].total, transactions:r.tx.rows[0].total, requests30d:r.usage.rows[0].total, activeKeys:r.keys.rows[0].total } });
 }));
-admin.get('/businesses', asyncRoute(async(req,res)=>{const q=await adminDb(req,c=>c.query(`SELECT b.id,b.name,b.email,b.status,b.created_at,s.plan,s.status AS subscription_status,(SELECT COUNT(*)::int FROM api_keys k WHERE k.business_id=b.id AND k.revoked_at IS NULL) AS api_keys FROM businesses b LEFT JOIN subscriptions s ON s.business_id=b.id ORDER BY b.created_at DESC`));res.json({businesses:q.rows});}));
+admin.get('/businesses', asyncRoute(async(req,res)=>{const q=await adminDb(req,c=>c.query(`SELECT b.id,b.name,b.email,b.status,b.card_data_reveal,b.created_at,s.plan,s.status AS subscription_status,(SELECT COUNT(*)::int FROM api_keys k WHERE k.business_id=b.id AND k.revoked_at IS NULL) AS api_keys FROM businesses b LEFT JOIN subscriptions s ON s.business_id=b.id ORDER BY b.created_at DESC`));res.json({businesses:q.rows});}));
 admin.patch('/businesses/:id', asyncRoute(async(req,res)=>{const status=req.body.status;if(!UUID_RE.test(req.params.id))return res.status(404).json({error:'Business not found.'});if(!['pending','active','suspended'].includes(status))return res.status(400).json({error:'Invalid business status.'});const q=await adminDb(req,async c=>{const r=await c.query('UPDATE businesses SET status=$1 WHERE id=$2 RETURNING id,name,email,status',[status,req.params.id]);if(r.rowCount)await auditEvent(c,{sub:req.auth.sub,businessId:req.params.id},'business.status_changed',{businessId:req.params.id,status},req.ip);return r;});if(!q.rowCount)return res.status(404).json({error:'Business not found.'});res.json({business:q.rows[0]});}));
 admin.get('/kyc', asyncRoute(async(req,res)=>{const q=await adminDb(req,c=>c.query(`SELECT k.id,k.business_id,b.name AS business_name,k.customer_email,k.customer_name,k.country,k.status,k.admin_decision,k.review_note,k.provider_customer_id,k.created_at,k.reviewed_at FROM kyc_submissions k JOIN businesses b ON b.id=k.business_id ORDER BY k.created_at DESC LIMIT 300`));res.json({submissions:q.rows});}));
-admin.patch('/kyc/:id', asyncRoute(async(req,res)=>{const decision=req.body.decision;const note=String(req.body.note||'').trim().slice(0,500)||null;if(!UUID_RE.test(req.params.id))return res.status(404).json({error:'KYC submission not found.'});if(!['approved','rejected'].includes(decision))return res.status(400).json({error:'decision must be approved or rejected.'});const q=await adminDb(req,async c=>{const r=await c.query('UPDATE kyc_submissions SET status=$1,admin_decision=$1,reviewed_by=$2,reviewed_at=NOW(),review_note=$3,updated_at=NOW() WHERE id=$4 RETURNING id,business_id,status',[decision,req.auth.sub,note,req.params.id]);if(r.rowCount)await auditEvent(c,{sub:req.auth.sub,businessId:r.rows[0].business_id},'kyc.reviewed',{submissionId:req.params.id,decision},req.ip);return r;});if(!q.rowCount)return res.status(404).json({error:'KYC submission not found.'});res.json({submission:q.rows[0]});}));
+admin.patch('/kyc/:id', asyncRoute(async(req,res)=>{const decision=req.body.decision;const note=String(req.body.note||'').trim().slice(0,500)||null;if(!UUID_RE.test(req.params.id))return res.status(404).json({error:'KYC submission not found.'});if(!['approved','rejected'].includes(decision))return res.status(400).json({error:'decision must be approved or rejected.'});const q=await adminDb(req,async c=>{const r=await c.query('UPDATE kyc_submissions SET status=$1,admin_decision=$1,reviewed_by=$2,reviewed_at=NOW(),review_note=$3,updated_at=NOW() WHERE id=$4 RETURNING id,business_id,status',[decision,req.auth.sub,note,req.params.id]);if(r.rowCount)await c.query('UPDATE end_users SET kyc_status=$1,kyc_updated_at=NOW() WHERE id=(SELECT end_user_id FROM kyc_submissions WHERE id=$2)',[decision,req.params.id]);if(r.rowCount)await auditEvent(c,{sub:req.auth.sub,businessId:r.rows[0].business_id},'kyc.reviewed',{submissionId:req.params.id,decision},req.ip);return r;});if(!q.rowCount)return res.status(404).json({error:'KYC submission not found.'});res.json({submission:q.rows[0]});}));
 admin.get('/api-keys', asyncRoute(async(req,res)=>{const q=await adminDb(req,c=>c.query(`SELECT k.id,k.business_id,b.name AS business_name,k.label,k.key_prefix,k.environment,k.last_used_at,k.created_at,k.revoked_at FROM api_keys k JOIN businesses b ON b.id=k.business_id ORDER BY k.created_at DESC LIMIT 300`));res.json({keys:q.rows});}));
 admin.delete('/api-keys/:id', asyncRoute(async(req,res)=>{if(!UUID_RE.test(req.params.id))return res.status(404).json({error:'Active API key not found.'});const q=await adminDb(req,async c=>{const r=await c.query('UPDATE api_keys SET revoked_at=NOW() WHERE id=$1 AND revoked_at IS NULL RETURNING id,business_id',[req.params.id]);if(r.rowCount)await auditEvent(c,{sub:req.auth.sub,businessId:r.rows[0].business_id},'api_key.revoked_by_admin',{keyId:req.params.id},req.ip);return r;});if(!q.rowCount)return res.status(404).json({error:'Active API key not found.'});res.json({ok:true});}));
 admin.get('/transactions', asyncRoute(async(req,res)=>{const q=await adminDb(req,c=>c.query(`SELECT t.id,t.business_id,b.name AS business_name,t.provider_reference,t.type,t.amount,t.currency,t.status,t.created_at FROM transactions t JOIN businesses b ON b.id=t.business_id ORDER BY t.created_at DESC LIMIT 300`));res.json({transactions:q.rows});}));
 admin.get('/subscriptions', asyncRoute(async(req,res)=>{const q=await adminDb(req,c=>c.query(`SELECT b.id AS business_id,b.name AS business_name,b.status AS business_status,COALESCE(s.plan,'free') AS plan,COALESCE(s.status,'active') AS status,s.updated_at FROM businesses b LEFT JOIN subscriptions s ON s.business_id=b.id ORDER BY b.created_at DESC`));res.json({subscriptions:q.rows,plans:PLANS,statuses:SUBSCRIPTION_STATUSES});}));
 admin.patch('/subscriptions/:businessId', asyncRoute(async(req,res)=>{const {plan,status}=req.body;if(!UUID_RE.test(req.params.businessId))return res.status(404).json({error:'Business not found.'});if(plan!==undefined&&!PLANS.includes(plan))return res.status(400).json({error:'Invalid plan.'});if(status!==undefined&&!SUBSCRIPTION_STATUSES.includes(status))return res.status(400).json({error:'Invalid subscription status.'});if(plan===undefined&&status===undefined)return res.status(400).json({error:'plan or status is required.'});const q=await adminDb(req,async c=>{const b=await c.query('SELECT id FROM businesses WHERE id=$1',[req.params.businessId]);if(!b.rowCount)return b;const r=await c.query(`INSERT INTO subscriptions(business_id,plan,status) VALUES($1,COALESCE($2,'free'),COALESCE($3,'active')) ON CONFLICT (business_id) DO UPDATE SET plan=COALESCE($2,subscriptions.plan),status=COALESCE($3,subscriptions.status),updated_at=NOW() RETURNING business_id,plan,status`,[req.params.businessId,plan??null,status??null]);await auditEvent(c,{sub:req.auth.sub,businessId:req.params.businessId},'subscription.updated',{plan,status},req.ip);return r;});if(!q.rowCount)return res.status(404).json({error:'Business not found.'});res.json({subscription:q.rows[0]});}));
 admin.get('/audit', asyncRoute(async(req,res)=>{const q=await adminDb(req,c=>c.query('SELECT id,business_id,actor_user_id,action,details,ip,created_at FROM audit_logs ORDER BY created_at DESC LIMIT 150'));res.json({logs:q.rows});}));
+// ---- finance admin (admin role only) ----
+admin.get('/finance', asyncRoute(async (req,res) => {
+ const r = await adminDb(req, async c => ({
+  total: (await c.query('SELECT COALESCE(SUM(amount),0)::text AS t FROM ledger_entries')).rows[0].t,
+  perBusiness: (await c.query(`SELECT b.id AS business_id,b.name AS business_name,COALESCE(SUM(l.amount),0)::text AS balance FROM businesses b LEFT JOIN ledger_entries l ON l.business_id=b.id GROUP BY b.id,b.name ORDER BY b.name LIMIT 200`)).rows,
+  unknownOps: (await c.query("SELECT COUNT(*)::int AS n FROM card_operations WHERE status IN ('unknown','pending')")).rows[0].n,
+ }));
+ let providerBalance = null; try { providerBalance = (await P.mainBalance())?.balance ?? null; } catch { providerBalance = null; }
+ res.json({ providerBalance, ledgerTotal: r.total, businesses: r.perBusiness, unresolvedOperations: r.unknownOps, productionEnabled: (process.env.ZIIROPAY_MODE||'sandbox')!=='production'||process.env.PROVIDER_PRODUCTION_ENABLED==='true' });
+}));
+admin.get('/deposits', asyncRoute(async(req,res)=>{const q=await adminDb(req,c=>c.query('SELECT d.id,d.business_id,b.name AS business_name,d.provider_trx,d.token,d.gross_amount,d.fee,d.credited_amount,d.created_at FROM deposits d JOIN businesses b ON b.id=d.business_id ORDER BY d.created_at DESC LIMIT 200'));res.json({deposits:q.rows});}));
+admin.get('/card-operations', asyncRoute(async(req,res)=>{const q=await adminDb(req,c=>c.query('SELECT o.id,o.business_id,b.name AS business_name,o.op_type,o.status,o.amount,o.card_id,o.error,o.created_at,o.updated_at FROM card_operations o JOIN businesses b ON b.id=o.business_id ORDER BY o.created_at DESC LIMIT 200'));res.json({operations:q.rows});}));
+admin.patch('/card-operations/:id', asyncRoute(async(req,res)=>{
+ if(!UUID_RE.test(req.params.id))return res.status(404).json({error:'Operation not found.'});
+ const status=req.body.status;if(!['succeeded','failed'].includes(status))return res.status(400).json({error:'status must be succeeded or failed.'});
+ const q=await adminDb(req,c=>c.query('SELECT * FROM card_operations WHERE id=$1',[req.params.id]));const op=q.rows[0];
+ if(!op)return res.status(404).json({error:'Operation not found.'});
+ if(!['unknown','pending'].includes(op.status))return res.status(409).json({error:'Only unknown or pending operations can be resolved.'});
+ let hook;
+ if(op.op_type==='create'&&status==='succeeded'){
+  const pid=String(req.body.provider_card_id||'').trim();if(!pid||pid.length>120)return res.status(400).json({error:'provider_card_id is required to resolve a card creation as succeeded.'});
+  const eu=(await pool.query('SELECT * FROM end_users WHERE id=$1',[op.end_user_id])).rows[0];if(!eu)return res.status(409).json({error:'The customer for this operation no longer exists.'});
+  hook=async c=>({cardId:await F.insertCard(c,{businessId:op.business_id,endUser:eu,providerCardId:pid,name:`${eu.first_name} ${eu.last_name}`})});
+ }
+ const done=await F.completeOperation(op.business_id,op.id,{status,error:'Resolved by an administrator.'},hook);
+ await auditEvent(pool,{sub:req.auth.sub,businessId:op.business_id},'card_operation.resolved',{operation:op.id,status},req.ip);
+ res.json({operation:F.opView(done)});
+}));
+admin.get('/webhook-events', asyncRoute(async(req,res)=>{const q=await adminDb(req,c=>c.query('SELECT id,event,business_id,outcome,error,received_at FROM webhook_events ORDER BY id DESC LIMIT 200'));res.json({events:q.rows});}));
+admin.get('/customers', asyncRoute(async(req,res)=>{const q=await adminDb(req,c=>c.query('SELECT e.public_id AS id,e.business_id,b.name AS business_name,e.email,e.first_name,e.last_name,e.kyc_status,e.created_at FROM end_users e JOIN businesses b ON b.id=e.business_id ORDER BY e.created_at DESC LIMIT 200'));res.json({customers:q.rows});}));
+admin.post('/reconcile', asyncRoute(async(req,res)=>{const out=await F.reconcileAll();await auditEvent(pool,{sub:req.auth.sub},'finance.reconcile',out,req.ip);res.json(out);}));
+admin.patch('/businesses/:id/card-data-reveal', asyncRoute(async(req,res)=>{if(!UUID_RE.test(req.params.id))return res.status(404).json({error:'Business not found.'});if(typeof req.body.enabled!=='boolean')return res.status(400).json({error:'enabled must be true or false.'});const q=await adminDb(req,async c=>{const r=await c.query('UPDATE businesses SET card_data_reveal=$1 WHERE id=$2 RETURNING id,card_data_reveal',[req.body.enabled,req.params.id]);if(r.rowCount)await auditEvent(c,{sub:req.auth.sub,businessId:req.params.id},'business.card_data_reveal',{enabled:req.body.enabled},req.ip);return r;});if(!q.rowCount)return res.status(404).json({error:'Business not found.'});res.json({business:q.rows[0]});}));
 app.use('/api/admin', admin);
 
 // ---------- partner API: authenticated by API key, every query runs in that business's tenant context ----------
-async function recordUsage(req,status,duration){ if(req.partner) scoped({businessId:req.partner.businessId},c=>c.query('INSERT INTO api_usage(business_id,api_key_id,method,path,status_code,duration_ms) VALUES($1,$2,$3,$4,$5,$6)',[req.partner.businessId,req.partner.apiKeyId,req.method,req.path,status,duration])).catch(e=>console.error('usage log failed:',e.message)); }
-const partnerDb = (req, fn) => scoped({ businessId: req.partner.businessId }, fn);
-app.use('/v1', requireApiKey, (req,res,next)=>{const start=Date.now();const original=res.json.bind(res);res.json=(body)=>{recordUsage(req,res.statusCode,Date.now()-start);return original(body);};next();});
-app.get('/v1/status', (req,res)=>res.json({ok:true,businessId:req.partner.businessId,environment:req.partner.environment,providerMode:PROVIDER_MODE}));
-app.post('/v1/kyc', asyncRoute(async(req,res)=>{
- const required=['first_name','last_name','id_number','email','phone_number','date_of_birth','dial_code','id_front_image','line1','state','postal_code','city','country','id_type','occupation','employment_status','account_purpose','annual_salary','expected_monthly_volume','place_of_birth'];
- const missing=required.filter(k=>!req.body[k]);if(missing.length)return res.status(400).json({error:'Missing required KYC fields.',missing});
- if(typeof req.body.id_front_image!=='string'||req.body.id_front_image.length>9_000_000)return res.status(400).json({error:'id_front_image must be Base64 and no larger than 6.5 MB decoded.'});
- const email=String(req.body.email).toLowerCase().trim();const name=`${req.body.first_name} ${req.body.last_name}`.trim();
- const existing=await partnerDb(req,c=>c.query('SELECT id FROM kyc_submissions WHERE business_id=$1 AND customer_email=$2 AND status IN ($3,$4) ORDER BY created_at DESC LIMIT 1',[req.partner.businessId,email,'submitted','pending']));if(existing.rowCount)return res.status(409).json({error:'A KYC request for this email is already pending.',submissionId:existing.rows[0].id});
- const payload={};for(const k of required)payload[k]=req.body[k];
- const result=await providerRequest('/bitvcard/cardkyc','POST',payload);const status=String(result?.data?.status||result?.status||'submitted').toLowerCase();const customerId=result?.data?.customer_id||result?.customer_id||null;
- const saved=await partnerDb(req,c=>c.query('INSERT INTO kyc_submissions(business_id,provider_customer_id,customer_email,customer_name,country,status,provider_reference) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,status,created_at',[req.partner.businessId,customerId,email,name,String(req.body.country),status,result?.reference||null]));
- res.status(201).json({submission:saved.rows[0],provider:redactProvider(result),notice:'Identity document was forwarded to our verification partner and is not stored by Zytrelix.'});
-}));
-app.get('/v1/kyc/status', asyncRoute(async(req,res)=>{const email=String(req.query.email||'').toLowerCase().trim();if(!email)return res.status(400).json({error:'email query parameter is required.'});const owned=await partnerDb(req,c=>c.query('SELECT id FROM kyc_submissions WHERE business_id=$1 AND customer_email=$2 LIMIT 1',[req.partner.businessId,email]));if(!owned.rowCount)return res.status(404).json({error:'No KYC submission for this email belongs to your business.'});const result=await providerRequest('/bitvcard/cardkycstatus','GET',{email});const status=String(result?.data?.status||result?.status||'unknown').toLowerCase();const customerId=result?.data?.customer_id||null;await partnerDb(req,c=>c.query('UPDATE kyc_submissions SET status=CASE WHEN admin_decision IS NOT NULL THEN status ELSE $1 END,provider_customer_id=COALESCE($2,provider_customer_id),updated_at=NOW() WHERE business_id=$3 AND customer_email=$4',[status,customerId,req.partner.businessId,email]));res.json({provider:redactProvider(result)});}));
-app.post('/v1/cards', asyncRoute(async(req,res)=>{const {name,customer_id,amount}=req.body;if(!name||!customer_id||!amount||!Number.isFinite(Number(amount))||Number(amount)<=0)return res.status(400).json({error:'name, approved customer_id and positive amount are required.'});const approved=await partnerDb(req,c=>c.query("SELECT id FROM kyc_submissions WHERE business_id=$1 AND provider_customer_id=$2 AND status ILIKE '%approved%' AND admin_decision IS DISTINCT FROM 'rejected' LIMIT 1",[req.partner.businessId,String(customer_id)]));if(!approved.rowCount)return res.status(403).json({error:'No approved KYC record exists for this customer under your business.'});const result=await providerRequest('/bitvcard/create-nfc-card','POST',{name,customer_id,amount});const detail=result?.response?.card_detail||result?.data||result?.card||{};const providerCardId=detail.card_id||result.card_id||result.id;if(providerCardId){await partnerDb(req,c=>c.query('INSERT INTO cards(business_id,provider_card_id,provider_customer_id,cardholder_name,last_four,status) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (business_id,provider_card_id) DO UPDATE SET status=EXCLUDED.status',[req.partner.businessId,String(providerCardId),String(customer_id),name,detail.last4||detail.last_four||null,detail.card_status||detail.status||'created']));}res.status(201).json({provider:redactProvider(result)});}));
-const ownedCard=asyncRoute(async(req,res,next)=>{const q=await partnerDb(req,c=>c.query('SELECT * FROM cards WHERE business_id=$1 AND provider_card_id=$2',[req.partner.businessId,req.params.cardId]));if(!q.rowCount)return res.status(404).json({error:'Card not found for this business.'});req.ownedCard=q.rows[0];next();});
-app.get('/v1/cards',asyncRoute(async(req,res)=>{const q=await partnerDb(req,c=>c.query('SELECT id,provider_card_id,cardholder_name,last_four,status,currency,created_at FROM cards WHERE business_id=$1 ORDER BY created_at DESC',[req.partner.businessId]));res.json({cards:q.rows});}));
-app.get('/v1/cards/:cardId',ownedCard,asyncRoute(async(req,res)=>{const result=await providerRequest('/bitvcard/fetch-nfccard-detail','GET',{card_id:req.params.cardId});res.json({provider:redactProvider(result)});}));
-app.get('/v1/cards/:cardId/transactions',ownedCard,asyncRoute(async(req,res)=>{const result=await providerRequest('/bitvcard/nfc-card-transactions','GET',{card_id:req.params.cardId});res.json({provider:redactProvider(result)});}));
-app.post('/v1/cards/:cardId/funding',ownedCard,asyncRoute(async(req,res)=>{const {amount,type='fund'}=req.body;if(!Number.isFinite(Number(amount))||Number(amount)<=0||!['fund','withdraw'].includes(type))return res.status(400).json({error:'A positive amount and type fund or withdraw are required.'});const result=await providerRequest('/bitvcard/fund-withdraw-nfccard','POST',{card_id:req.params.cardId,amount,type});await partnerDb(req,c=>c.query('INSERT INTO transactions(business_id,card_id,type,amount,status) VALUES($1,$2,$3,$4,$5)',[req.partner.businessId,req.ownedCard.id,type,amount,result?.status||'submitted']));res.json({provider:redactProvider(result)});}));
-app.post('/v1/cards/:cardId/status',ownedCard,asyncRoute(async(req,res)=>{const {status}=req.body;if(!['active','frozen'].includes(status))return res.status(400).json({error:'status must be active or frozen.'});const result=await providerRequest('/bitvcard/nfc-cards/status','POST',{card_id:req.params.cardId,status});await partnerDb(req,c=>c.query('UPDATE cards SET status=$1 WHERE id=$2 AND business_id=$3',[status,req.ownedCard.id,req.partner.businessId]));res.json({provider:redactProvider(result)});}));
+async function recordUsage(req,status,duration){ if(req.partner) scoped({businessId:req.partner.businessId},c=>c.query('INSERT INTO api_usage(business_id,api_key_id,method,path,status_code,duration_ms) VALUES($1,$2,$3,$4,$5,$6)',[req.partner.businessId,req.partner.apiKeyId,req.method,String(req.originalUrl).split('?')[0].slice(0,200),status,duration])).catch(()=>{}); }
+app.use('/v1', requireApiKey, (req,res,next)=>{const start=Date.now();const original=res.json.bind(res);res.json=(body)=>{recordUsage(req,res.statusCode,Date.now()-start);return original(body);};next();}, partnerRouter({ auditEvent, providerMode: providerModeFn }));
 
-// Provider webhook: authenticated by shared secret; runs as the table owner because it is not a tenant request.
-app.post('/api/webhooks/ziiropay', asyncRoute(async(req,res)=>{const secret=process.env.PROVIDER_WEBHOOK_SECRET;if(!secret)return res.status(503).json({error:'Provider webhook is disabled until a verification method is configured.'});const supplied=req.get('x-zytrelix-webhook-secret')||'';if(!safeEqual(supplied,secret))return res.status(401).json({error:'Invalid webhook secret.'});const event=String(req.body.event||'unknown');const cardId=req.body.cardId||req.body.card_id;const status=req.body.status||req.body.createdStatus;if(event.startsWith('virtualcard.')&&cardId){await pool.query('UPDATE cards SET status=COALESCE($1,status) WHERE provider_card_id=$2',[status||null,String(cardId)]);}if(event.toLowerCase().includes('kyc')&&req.body.email){await pool.query('UPDATE kyc_submissions SET status=$1,updated_at=NOW() WHERE customer_email=$2 AND admin_decision IS NULL AND ($3::text IS NULL OR provider_customer_id=$3)',[String(status||'updated'),String(req.body.email).toLowerCase(),req.body.customer_id?String(req.body.customer_id):null]);}res.json({received:true});}));
+// Provider webhooks: authenticated by shared secret (path token or header); own rate limit, not the generic /api one.
+const webhookLimiter = rateLimit({ windowMs: 60_000, limit: 600, standardHeaders: true, legacyHeaders: false });
+app.post('/api/webhooks/ziiropay/:token', webhookLimiter, webhookHandler());
+app.post('/api/webhooks/ziiropay', webhookLimiter, webhookHandler());
 
 app.all(['/api/*', '/v1/*'], (_req, res) => res.status(404).json({ error: 'Not found.' }));
 app.use((req, res) => res.status(404).type('text').send('Not found'));
-app.use((err,req,res,_next)=>{console.error('Request failed:',err.message);if(res.headersSent)return;res.status(err.status||500).json({error:err.status?err.message:'Internal server error.'});});
+app.use((err,req,res,_next)=>{console.error('Request failed:',err.message);if(res.headersSent)return;const extra={};if(err.status)for(const k of ['missing','balance','supported','operation_id'])if(err[k]!==undefined)extra[k]=err[k];res.status(err.status||500).json({error:err.status?err.message:'Internal server error.',...extra});});
 
-if (require.main === module) initDb().then(()=>app.listen(PORT,()=>console.log(`Zytrelix API Hub listening on ${PORT}; provider mode=${PROVIDER_MODE}`))).catch(err=>{console.error('Startup failed:',err);process.exit(1);});
+if (require.main === module) initDb().then(()=>{F.startReconciler();return app.listen(PORT,()=>console.log(`Zytrelix API Hub listening on ${PORT}; provider mode=${PROVIDER_MODE}`))}).catch(err=>{console.error('Startup failed:',err);process.exit(1);});
 module.exports = { app, initDb, pool };
